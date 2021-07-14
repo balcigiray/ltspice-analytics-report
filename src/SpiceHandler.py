@@ -13,7 +13,18 @@ class SpiceHandler:
     from Resistor import Resistor
     from Capacitor import Capacitor
     
+    measVRMS = ".meas %s_VRMS RMS V"
+    measVMAX = ".meas %s_VMAX MAX V"
+    measIRMS = ".meas %s_IRMS RMS I"
+    measIMAX = ".meas %s_IMAX MAX I"
+    measPAVG = ".meas %s_PAVG AVG V"
+    measPMAX = ".meas %s_PMAX MAX V"
     
+
+    regexMeasName = ".+(?=:)"
+    regexMeasValue = "(?<==).+?(?= )"  #(?<==).+[^ ](?= )
+  
+
     def __init__(self, exeLocation, exeName, fileName):
         if(fileName[-4:] == ".asc" ):
             self.fileName = fileName
@@ -81,7 +92,7 @@ class SpiceHandler:
         
         #seperate components into their own lists        
         for l in spiceComponentLines:
-            atoms = l.split()
+            atoms = l.upper().split()
             
             if(atoms[0].startswith("R")):
                 res = self.Resistor(atoms[0], atoms[1], atoms[2], atoms[3])
@@ -106,10 +117,18 @@ class SpiceHandler:
         measCMD = ""
 
         for r in resistors:
-            measCMD += r.createMeasCommand()
+            measCMD += r.createMeasCommandVol(self.measVRMS)
+            measCMD += r.createMeasCommandVol(self.measVMAX)
+            measCMD += r.createMeasCommandCur(self.measIRMS)
+            measCMD += r.createMeasCommandCur(self.measIMAX)  
+            measCMD += r.createMeasCommandPow(self.measPAVG)
+            measCMD += r.createMeasCommandPow(self.measPMAX)              
             
         for c in capacitors:
-            measCMD += c.createMeasCommand()
+            measCMD += c.createMeasCommandVol(self.measVRMS)
+            measCMD += c.createMeasCommandVol(self.measVMAX)
+            measCMD += c.createMeasCommandCur(self.measIRMS)
+            measCMD += c.createMeasCommandCur(self.measIMAX) 
         return measCMD
     
     
@@ -141,13 +160,11 @@ class SpiceHandler:
         measurementLines = measurements.splitlines()[4:-19] #should check if all applies
         
         for l in measurementLines:
-            atoms = l.split()
-
-            name = atoms[0].split("_")[0].upper()
-            measType = atoms[0].split("_")[1][:-1].upper() 
-           
-            #using regex to extract sim result
-            value = float(self.re.search("(?<==)\d+(\.|\d)+\d", atoms[1]).group())
+            measName = self.re.search(self.regexMeasName, l).group() 
+            name = measName[:-5].upper()
+            measType = measName[-4:].upper()
+            valueText = self.re.search(self.regexMeasValue , l).group()
+            value = float(valueText)
 
             for li in self.listOfComponents:
                 for co in li:
