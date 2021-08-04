@@ -30,3 +30,17 @@ Respectively meanings are:
 3. Node2 
 4. Value
     
+
+### Transistor
+Typical transistor spice line is:
+    
+    Q1 N025 P001 0 0 BC847B
+
+Respectively meanings are:
+1. Name
+2. Collector node
+3. Base node
+4. Emitter node
+5. Substrate (if unspecified, ground used)
+6. Model
+
