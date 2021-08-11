@@ -10,10 +10,18 @@ class SpiceHandler:
     import subprocess
     import time
     import re
-    from Resistor import Resistor
-    from Capacitor import Capacitor
+    from Components import Component, Component2Pin, Capacitor, Resistor, BJT
     
+    measVRMS = ".meas %s+VRMS RMS V"
+    measVMAX = ".meas %s+VMAX MAX V"
+    measIRMS = ".meas %s+IRMS RMS I"
+    measIMAX = ".meas %s+IMAX MAX I"
+    measPAVG = ".meas %s+PAVG AVG V"
+    measPMAX = ".meas %s+PMAX MAX V"
     
+    regexMeasName = ".+(?=:)"
+    regexMeasValue = "(?<==).+?(?= )"  #(?<==).+[^ ](?= )
+
     def __init__(self, exeLocation, exeName, fileName):
         if(fileName[-4:] == ".asc" ):
             self.fileName = fileName
@@ -78,23 +86,30 @@ class SpiceHandler:
         #individual list of components
         listResistors = []
         listCapacitors = []
+        listBJTs = []
         
         #seperate components into their own lists        
         for l in spiceComponentLines:
-            atoms = l.split()
+            atoms = l.upper().split()
             
             if(atoms[0].startswith("R")):
                 res = self.Resistor(atoms[0], atoms[1], atoms[2], atoms[3])
+                
                 listResistors.append(res)
             if(atoms[0].startswith("C")):
                 cap = self.Capacitor(atoms[0], atoms[1], atoms[2], atoms[3])
                 listCapacitors.append(cap)                
+            if(atoms[0].startswith("Q")):
+                bjt = self.BJT(atoms[0], atoms[1], atoms[2], atoms[3], atoms[5])
+                listBJTs.append(bjt) 
                                    
         print("Number of resistors: " + str(len(listResistors)))        
         print("Number of capacitors: " + str(len(listCapacitors)))
+        print("Number of BJTs: " + str(len(listBJTs)))
                 
         self.listOfComponents.append(listResistors)
         self.listOfComponents.append(listCapacitors)
+        self.listOfComponents.append(listBJTs)
         
         return self.listOfComponents
     
@@ -102,14 +117,30 @@ class SpiceHandler:
     def generateMeasCommand(self):
         resistors = self.listOfComponents[0]
         capacitors = self.listOfComponents[1] 
+        bjts = self.listOfComponents[2] 
         
         measCMD = ""
 
         for r in resistors:
-            measCMD += r.createMeasCommand()
+            measCMD += r.createMeasCommandVol(self.measVRMS)
+            measCMD += r.createMeasCommandVol(self.measVMAX)
+            measCMD += r.createMeasCommandCur(self.measIRMS)
+            measCMD += r.createMeasCommandCur(self.measIMAX)  
+            measCMD += r.createMeasCommandPow(self.measPAVG)
+            measCMD += r.createMeasCommandPow(self.measPMAX)              
             
         for c in capacitors:
-            measCMD += c.createMeasCommand()
+            measCMD += c.createMeasCommandVol(self.measVRMS)
+            measCMD += c.createMeasCommandVol(self.measVMAX)
+            measCMD += c.createMeasCommandCur(self.measIRMS)
+            measCMD += c.createMeasCommandCur(self.measIMAX) 
+            
+        for b in bjts:
+            measCMD += b.createMeasCommandVol(self.measVRMS)
+            measCMD += b.createMeasCommandVol(self.measVMAX)
+            measCMD += b.createMeasCommandCur(self.measIRMS, "Q")
+            measCMD += b.createMeasCommandCur(self.measIMAX, "Q")
+            
         return measCMD
     
     
@@ -141,19 +172,21 @@ class SpiceHandler:
         measurementLines = measurements.splitlines()[4:-19] #should check if all applies
         
         for l in measurementLines:
-            atoms = l.split()
-
-            name = atoms[0].split("_")[0].upper()
-            measType = atoms[0].split("_")[1][:-1].upper() 
-           
-            #using regex to extract sim result
-            value = float(self.re.search("(?<==)\d+(\.|\d)+\d", atoms[1]).group())
+            measName = self.re.search(self.regexMeasName, l).group() #r5+vrms
+            mn = measName[:-5].upper().split("+") #R5
+            name = mn[0] #R5
+            measType = measName[-4:].upper() #VRMS
+            
+            valueText = self.re.search(self.regexMeasValue, l).group() #0.651136
+            value = float(valueText)
 
             for li in self.listOfComponents:
                 for co in li:
                     if(co.name == name):
-                        co.addMeasurement(measType, value)
-           
+                        if (co.numberOfNodes == 2):    
+                            co.addMeasurement("P1P2", measType, value)
+                        elif(co.numberOfNodes == 3): 
+                            co.addMeasurement(measType[0]+mn[1], measType, value)
             
         return self.listOfComponents
 
