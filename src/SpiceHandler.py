@@ -10,7 +10,7 @@ class SpiceHandler:
     import subprocess
     import time
     import re
-    from Components import Component, Component2Pin, Capacitor, Resistor, BJT
+    from Components import Component, Component2Pin, Capacitor, Resistor, BJT, MOSFET
     
     measVRMS = ".meas %s+VRMS RMS V"
     measVMAX = ".meas %s+VMAX MAX V"
@@ -19,6 +19,7 @@ class SpiceHandler:
     measPAVG = ".meas %s+PAVG AVG V"
     measPMAX = ".meas %s+PMAX MAX V"
     
+    regexValidMeas = ".+:.[A-Z]+\(.+\)=.+[0-9].+" #extract valid measurements
     regexMeasName = ".+(?=:)"
     regexMeasValue = "(?<==).+?(?= )"  #(?<==).+[^ ](?= )
 
@@ -87,6 +88,7 @@ class SpiceHandler:
         listResistors = []
         listCapacitors = []
         listBJTs = []
+        listMOSFETs = []
         
         #seperate components into their own lists        
         for l in spiceComponentLines:
@@ -94,22 +96,26 @@ class SpiceHandler:
             
             if(atoms[0].startswith("R")):
                 res = self.Resistor(atoms[0], atoms[1], atoms[2], atoms[3])
-                
                 listResistors.append(res)
             if(atoms[0].startswith("C")):
                 cap = self.Capacitor(atoms[0], atoms[1], atoms[2], atoms[3])
                 listCapacitors.append(cap)                
             if(atoms[0].startswith("Q")):
                 bjt = self.BJT(atoms[0], atoms[1], atoms[2], atoms[3], atoms[5])
-                listBJTs.append(bjt) 
+                listBJTs.append(bjt)
+            if(atoms[0].startswith("M")):
+                mosfet = self.MOSFET(atoms[0], atoms[1], atoms[2], atoms[3], atoms[5])
+                listMOSFETs.append(mosfet) 
                                    
         print("Number of resistors: " + str(len(listResistors)))        
         print("Number of capacitors: " + str(len(listCapacitors)))
         print("Number of BJTs: " + str(len(listBJTs)))
+        print("Number of MOSFETs: " + str(len(listMOSFETs)))        
                 
         self.listOfComponents.append(listResistors)
         self.listOfComponents.append(listCapacitors)
         self.listOfComponents.append(listBJTs)
+        self.listOfComponents.append(listMOSFETs)        
         
         return self.listOfComponents
     
@@ -118,6 +124,7 @@ class SpiceHandler:
         resistors = self.listOfComponents[0]
         capacitors = self.listOfComponents[1] 
         bjts = self.listOfComponents[2] 
+        mosfets = self.listOfComponents[3] 
         
         measCMD = ""
 
@@ -140,6 +147,12 @@ class SpiceHandler:
             measCMD += b.createMeasCommandVol(self.measVMAX)
             measCMD += b.createMeasCommandCur(self.measIRMS, "Q")
             measCMD += b.createMeasCommandCur(self.measIMAX, "Q")
+
+        for m in mosfets:
+            measCMD += m.createMeasCommandVol(self.measVRMS)
+            measCMD += m.createMeasCommandVol(self.measVMAX)
+            measCMD += m.createMeasCommandCur(self.measIRMS, "M")
+            measCMD += m.createMeasCommandCur(self.measIMAX, "M")            
             
         return measCMD
     
@@ -172,21 +185,30 @@ class SpiceHandler:
         measurementLines = measurements.splitlines()[4:-19] #should check if all applies
         
         for l in measurementLines:
-            measName = self.re.search(self.regexMeasName, l).group() #r5+vrms
-            mn = measName[:-5].upper().split("+") #R5
-            name = mn[0] #R5
-            measType = measName[-4:].upper() #VRMS
-            
-            valueText = self.re.search(self.regexMeasValue, l).group() #0.651136
-            value = float(valueText)
+            # validMeasText = self.re.search(self.regexValidMeas, l).group() #valid meas command
+            if(self.re.search(self.regexValidMeas, l)):
+                measName = self.re.search(self.regexMeasName, l).group() #r5+vrms
+                mn = measName[:-5].upper().split("+") #R5
+                name = mn[0] #R5
+                measType = measName[-4:].upper() #VRMS
+                
+                valueText = self.re.search(self.regexMeasValue, l).group() #0.651136
+                value = float(valueText)
 
-            for li in self.listOfComponents:
-                for co in li:
-                    if(co.name == name):
-                        if (co.numberOfNodes == 2):    
-                            co.addMeasurement("P1P2", measType, value)
-                        elif(co.numberOfNodes == 3): 
-                            co.addMeasurement(measType[0]+mn[1], measType, value)
+                for li in self.listOfComponents:
+                    for co in li:
+                        if(co.name == name):
+                            if (co.numberOfNodes == 2):    
+                                co.addMeasurement("P1P2", measType, value)
+                            elif(co.numberOfNodes == 3): 
+                                co.addMeasurement(measType[0]+mn[1], measType, value)
+
+        # delete empty componenet lists
+        i = len(self.listOfComponents) - 1
+        while (i>0):
+            if not self.listOfComponents[i]:
+                del self.listOfComponents[i]
+            i -= 1
             
         return self.listOfComponents
 
